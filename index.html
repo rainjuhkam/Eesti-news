@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>Estonian News Reader</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg: #000000;
+            --text: #e5e5e7;
+            --border: #1c1c1e;
+            --header-bg: rgba(10, 10, 10, 0.95);
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* --- Header --- */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 100;
+            background: var(--header-bg);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            padding: calc(var(--safe-top) + 16px) 16px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .app-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 10px;
+            text-transform: uppercase;
+            line-height: 1.2;
+            margin: 0;
+            color: var(--text);
+            transition: color 0.3s;
+        }
+
+        .bed-toggle {
+            background: none;
+            border: none;
+            color: var(--text);
+            padding: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .bed-toggle i {
+            transition: stroke 0.3s;
+        }
+
+        /* --- Pull to Refresh --- */
+        #ptr-container {
+            height: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            background-color: var(--bg);
+            margin-top: calc(var(--safe-top) + 60px); /* Clear header space */
+        }
+        
+        #ptr-text {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 8px;
+            color: #888;
+            padding-bottom: 16px;
+        }
+
+        /* --- Feed & Cards --- */
+        #feed-container {
+            padding-top: calc(var(--safe-top) + 60px);
+            min-height: 100vh;
+            transition: opacity 0.3s, filter 0.3s;
+        }
+
+        .card {
+            border-bottom: 1px solid var(--border);
+            padding: 16px 0;
+            margin: 0 16px;
+        }
+
+        .card-thumb {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: none;
+            background-color: #111;
+        }
+
+        .card-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            cursor: pointer;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0 0 4px 0;
+            line-height: 1.4;
+        }
+
+        .card-meta {
+            font-size: 12px;
+            color: #888;
+            margin: 0;
+        }
+
+        .chevron-down {
+            flex-shrink: 0;
+            color: #888;
+            transition: transform 0.3s ease;
+        }
+
+        .card.expanded .chevron-down {
+            transform: rotate(180deg);
+        }
+
+        .card-desc-container {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .card.expanded .card-desc-container {
+            max-height: 800px;
+            opacity: 1;
+            margin-top: 12px;
+        }
+
+        .card-desc-text {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #ccc;
+            margin: 0 0 12px 0;
+        }
+
+        .read-full {
+            display: inline-block;
+            color: #4caf50;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        /* --- Loading --- */
+        #loading-block {
+            padding: 32px 16px calc(var(--safe-bottom) + 32px);
+            text-align: center;
+        }
+
+        .loading-text {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 8px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        /* --- Bed Mode Overrides --- */
+        body.bed-mode .app-title { color: #444; }
+        body.bed-mode .bed-toggle i { stroke: #444; }
+        body.bed-mode #feed-container {
+            opacity: 0.25;
+            filter: grayscale(0.6);
+        }
+        body.bed-mode #nav-cluster {
+            opacity: 0.3;
+        }
+        body.bed-mode #nav-cluster.visible:hover {
+            opacity: 0.8;
+        }
+
+        /* --- Floating Navigation Cluster (CRITICAL) --- */
+        #nav-cluster {
+            position: fixed;
+            bottom: calc(var(--safe-bottom) + 24px);
+            right: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 12px;
+            z-index: 90;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            /* Aggressive touch selection prevention */
+            -webkit-touch-callout: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
+        }
+
+        #nav-cluster.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .scroll-top-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .pill-track {
+            width: 100px;
+            height: 44px;
+            border-radius: 22px;
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            position: relative;
+            display: flex;
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        .lock-icon-static {
+            position: absolute;
+            left: 12px;
+            color: #fff;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .drag-thumb {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #444;
+            position: absolute;
+            right: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            pointer-events: none; /* Let overlay handle touches */
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .drag-thumb.locked {
+            background: #2196f3;
+            transition: background 0.3s, transform 0.3s;
+        }
+
+        /* The invisible absolute touch area over the thumb to cleanly trap events */
+        .touch-overlay {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50px;
+            height: 44px;
+            z-index: 5;
+            cursor: grab;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1 class="app-title">EST News Reader</h1>
+        <button class="bed-toggle" id="bed-mode-btn" aria-label="Toggle Bed Mode">
+            <i data-lucide="moon" id="bed-icon"></i>
+        </button>
+    </header>
+
+    <div id="ptr-container">
+        <div id="ptr-text">PULL TO REFRESH</div>
+    </div>
+
+    <div id="feed-container"></div>
+
+    <div id="loading-block">
+        <span class="loading-text" id="loading-indicator">LOADING...</span>
+    </div>
+
+    <div id="nav-cluster">
+        <div class="scroll-top-btn" id="scroll-top">
+            <i data-lucide="chevron-up"></i>
+        </div>
+        <div class="pill-track">
+            <i data-lucide="lock" class="lock-icon-static" size="18"></i>
+            <div class="drag-thumb" id="drag-thumb">
+                <i data-lucide="chevron-down" size="20"></i>
+            </div>
+            <div class="touch-overlay" id="touch-overlay"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Global State & Initialization ---
+        const feeds = [
+            "https://www.err.ee/rss",
+            "https://www.postimees.ee/rss",
+            "https://www.delfi.ee/rss/"
+        ];
+        
+        let allArticles = [];
+        let displayedCount = 0;
+        const CHUNK_SIZE = 15;
+        const proxyBase = "https://api.codetabs.com/v1/proxy?quest=";
+
+        // --- 2. Icons & UI Setup ---
+        lucide.createIcons();
+
+        // Bed Mode
+        const bedBtn = document.getElementById('bed-mode-btn');
+        const bedIcon = document.getElementById('bed-icon');
+        bedBtn.addEventListener('click', () => {
+            document.body.classList.toggle('bed-mode');
+            if(document.body.classList.contains('bed-mode')) {
+                bedIcon.setAttribute('data-lucide', 'sun');
+            } else {
+                bedIcon.setAttribute('data-lucide', 'moon');
+            }
+            lucide.createIcons();
+        });
+
+        // --- 3. Smart Dates Utility ---
+        function getSmartDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            
+            // Generate midnight boundary for calculation
+            const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            
+            // Format time HH:MM
+            const hh = date.getHours().toString().padStart(2, '0');
+            const mm = date.getMinutes().toString().padStart(2, '0');
+            const timeStr = `${hh}:${mm}`;
+            
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const monDD = `${monthNames[date.getMonth()]} ${date.getDate()}`;
+
+            let daysOld = 0;
+            if (date >= midnight) {
+                daysOld = 0; // Today
+            } else {
+                const msPerDay = 1000 * 60 * 60 * 24;
+                daysOld = Math.ceil((midnight - date) / msPerDay);
+            }
+
+            if (daysOld === 0) {
+                return diffMins < 60 ? `${diffMins}m ago` : timeStr;
+            } else if (daysOld === 1) {
+                return `Yesterday • ${timeStr}`;
+            } else if (daysOld >= 2 && daysOld <= 3) {
+                return `${monDD} • ${timeStr}`;
+            } else {
+                return monDD;
+            }
+        }
+
+        // --- 4. Fetching & Parsing Data ---
+        async function fetchFeeds() {
+            try {
+                const fetches = feeds.map(url => {
+                    const cacheBuster = `cb=${Date.now()}${Math.random().toString(36).substring(7)}`;
+                    const separator = url.includes('?') ? '&' : '?';
+                    const targetUrl = encodeURIComponent(`${url}${separator}${cacheBuster}`);
+                    
+                    return fetch(proxyBase + targetUrl)
+                        .then(res => res.text())
+                        .catch(err => {
+                            console.error(`Error fetching ${url}:`, err);
+                            return "";
+                        });
+                });
+
+                const results = await Promise.all(fetches);
+                let parsedArticles = [];
+
+                results.forEach((xmlText, index) => {
+                    if (!xmlText) return;
+                    
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+                    const items = xmlDoc.querySelectorAll("item, entry");
+                    
+                    let sourceName = "News";
+                    if (feeds[index].includes("err.ee")) sourceName = "ERR";
+                    if (feeds[index].includes("postimees.ee")) sourceName = "Postimees";
+                    if (feeds[index].includes("delfi.ee")) sourceName = "Delfi";
+
+                    items.forEach(item => {
+                        const titleTag = item.querySelector("title");
+                        const linkTag = item.querySelector("link");
+                        const dateTag = item.querySelector("pubDate") || item.querySelector("updated") || item.querySelector("published");
+                        const descTag = item.querySelector("description") || item.querySelector("summary") || item.querySelector("content");
+                        
+                        const title = titleTag ? titleTag.textContent.trim() : "Untitled";
+                        let link = "";
+                        if (linkTag) {
+                            link = linkTag.textContent || linkTag.getAttribute("href") || "";
+                        }
+                        
+                        const pubDate = dateTag ? dateTag.textContent : new Date().toISOString();
+
+                        // Attempt to extract Image
+                        let imgUrl = "";
+                        const enclosure = item.querySelector("enclosure[url]");
+                        if (enclosure) {
+                            imgUrl = enclosure.getAttribute("url");
+                        } else {
+                            // Look for media:content
+                            const mediaContents = item.getElementsByTagNameNS("*", "content");
+                            if(mediaContents.length > 0) {
+                                imgUrl = mediaContents[0].getAttribute("url") || "";
+                            }
+                        }
+
+                        // Parse description & extract embedded image as fallback
+                        let rawDesc = descTag ? descTag.textContent : "";
+                        if (!imgUrl && rawDesc) {
+                            const imgMatch = rawDesc.match(/<img[^>]+src="([^">]+)"/i);
+                            if (imgMatch) imgUrl = imgMatch[1];
+                        }
+
+                        // Clean HTML from description
+                        let tempDiv = document.createElement("div");
+                        tempDiv.innerHTML = rawDesc;
+                        let textDesc = tempDiv.textContent || tempDiv.innerText || "";
+                        textDesc = textDesc.trim().replace(/\s+/g, ' ');
+                        if (textDesc.length > 200) {
+                            textDesc = textDesc.substring(0, 200) + "...";
+                        }
+
+                        parsedArticles.push({ title, link, pubDate, imgUrl, textDesc, sourceName });
+                    });
+                });
+
+                // Deduplicate by link
+                const seenLinks = new Set();
+                allArticles = parsedArticles.filter(a => {
+                    if (seenLinks.has(a.link)) return false;
+                    seenLinks.add(a.link);
+                    return true;
+                });
+
+                // Strict descending sort by Date
+                allArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+
+                // Clear feed & render first chunk
+                document.getElementById('feed-container').innerHTML = '';
+                displayedCount = 0;
+                renderNextChunk();
+
+            } catch (error) {
+                console.error("Critical fetching error:", error);
+                document.getElementById('loading-indicator').textContent = "ERROR LOADING NEWS";
+            }
+        }
+
+        // --- 5. Rendering & Infinite Scroll ---
+        function renderNextChunk() {
+            const container = document.getElementById('feed-container');
+            const chunk = allArticles.slice(displayedCount, displayedCount + CHUNK_SIZE);
+            
+            if (chunk.length === 0) {
+                document.getElementById('loading-indicator').textContent = "NO MORE NEWS";
+                return;
+            }
+
+            chunk.forEach(article => {
+                const card = document.createElement('div');
+                card.className = 'card';
+
+                const safeImg = article.imgUrl ? `<img src="${article.imgUrl}" class="card-thumb" style="display:block" loading="lazy" alt="Thumbnail">` : '';
+                
+                card.innerHTML = `
+                    ${safeImg}
+                    <div class="card-header-row">
+                        <div>
+                            <h2 class="card-title">${article.title}</h2>
+                            <p class="card-meta">${article.sourceName} • ${getSmartDate(article.pubDate)}</p>
+                        </div>
+                        <i data-lucide="chevron-down" class="chevron-down"></i>
+                    </div>
+                    <div class="card-desc-container">
+                        <p class="card-desc-text">${article.textDesc || "No description available."}</p>
+                        <a href="${article.link}" target="_blank" rel="noopener" class="read-full">Read Full Article</a>
+                    </div>
+                `;
+
+                // Expand event
+                card.querySelector('.card-header-row').addEventListener('click', () => {
+                    card.classList.toggle('expanded');
+                });
+
+                container.appendChild(card);
+            });
+
+            displayedCount += chunk.length;
+            lucide.createIcons();
+        }
+
+        // Intersection Observer for Infinite Scroll
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && allArticles.length > 0 && displayedCount < allArticles.length) {
+                renderNextChunk();
+            }
+        }, { rootMargin: '400px' });
+        
+        observer.observe(document.getElementById('loading-block'));
+
+        // --- 6. Pull to Refresh Logic ---
+        let ptrStartY = 0;
+        let ptrActive = false;
+        const ptrContainer = document.getElementById('ptr-container');
+        const ptrText = document.getElementById('ptr-text');
+
+        document.addEventListener('touchstart', (e) => {
+            if (window.scrollY === 0) {
+                ptrStartY = e.touches[0].clientY;
+                ptrActive = true;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            if (ptrActive && window.scrollY === 0) {
+                const deltaY = e.touches[0].clientY - ptrStartY;
+                if (deltaY > 0) {
+                    const pullHeight = Math.min(deltaY * 0.4, 50); // Resistance and max 50px
+                    ptrContainer.style.height = `${pullHeight}px`;
+                }
+            } else {
+                ptrActive = false;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchend', () => {
+            if (ptrActive) {
+                const currentHeight = parseInt(ptrContainer.style.height || '0', 10);
+                if (currentHeight >= 40) {
+                    ptrText.textContent = "UPDATING...";
+                    // Fetch then retract
+                    fetchFeeds().then(() => {
+                        ptrContainer.style.height = '0px';
+                        setTimeout(() => ptrText.textContent = "PULL TO REFRESH", 300);
+                    });
+                } else {
+                    ptrContainer.style.height = '0px'; // Cancel pull
+                }
+                ptrActive = false;
+            }
+        });
+
+        // --- 7. Slide-to-Lock Autoscroll Logic ---
+        const navCluster = document.getElementById('nav-cluster');
+        const overlay = document.getElementById('touch-overlay');
+        const thumb = document.getElementById('drag-thumb');
+        
+        let isScrolling = false;
+        let isLocked = false;
+        let scrollRAF;
+        let touchStartX = 0;
+        let thumbTranslate = 0;
+
+        // Reveal navigation based on scroll
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 400) {
+                navCluster.classList.add('visible');
+            } else {
+                navCluster.classList.remove('visible');
+            }
+        });
+
+        // Autoscroll Loop
+        function autoscrollLoop() {
+            if (isScrolling) {
+                window.scrollBy(0, 1.2);
+                scrollRAF = requestAnimationFrame(autoscrollLoop);
+            }
+        }
+
+        function stopAutoscroll() {
+            isScrolling = false;
+            isLocked = false;
+            thumb.style.transform = `translateX(0px)`;
+            thumb.classList.remove('locked');
+            cancelAnimationFrame(scrollRAF);
+        }
+
+        overlay.addEventListener('touchstart', (e) => {
+            if (isLocked) return;
+            touchStartX = e.touches[0].clientX;
+            isScrolling = true;
+            autoscrollLoop();
+        }, { passive: false });
+
+        overlay.addEventListener('touchmove', (e) => {
+            if (isLocked || !isScrolling) return;
+            // Prevent default zooming/scrolling on parent
+            e.preventDefault(); 
+            
+            let deltaX = e.touches[0].clientX - touchStartX;
+            
+            // Constrain movement: right limit = 0, left limit = -56 (track width - padding - thumb size)
+            if (deltaX > 0) deltaX = 0;
+            if (deltaX < -56) deltaX = -56;
+            
+            thumbTranslate = deltaX;
+            thumb.style.transform = `translateX(${deltaX}px)`;
+        }, { passive: false });
+
+        overlay.addEventListener('touchend', () => {
+            if (isLocked) return;
+            
+            // If dragged past threshold, snap and lock
+            if (thumbTranslate <= -40) {
+                isLocked = true;
+                thumb.style.transform = `translateX(-56px)`;
+                thumb.classList.add('locked');
+            } else {
+                // Snap back, stop scroll
+                stopAutoscroll();
+            }
+        });
+
+        // Break lock unconditionally on external taps
+        document.addEventListener('touchstart', (e) => {
+            if (isLocked && !e.target.closest('.pill-track')) {
+                stopAutoscroll();
+            }
+        });
+
+        // Scroll Top Button logic
+        document.getElementById('scroll-top').addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (isLocked) stopAutoscroll();
+        });
+
+        // --- Start App ---
+        // Hide Feed padding logic for initial load pull down effect
+        if(!document.getElementById('feed-container').hasChildNodes()){
+            fetchFeeds();
+        }
+
+    </script>
+</body>
+</html>
